@@ -1,0 +1,813 @@
+<!--
+  This task is a standalone HTML/JavaScript reimplementation of an
+  Ebbinghaus/Muller-Lyer size-matching experiment originally built in
+  PsychoPy by Lowe Wilsson (Karolinska Institutet), with input from
+  Tessa M. van Leeuwen (Radboud University).
+  Original repository: https://github.com/AnonZebra/ebbinghaus-mullerlyer-psychopy
+
+  Based on:
+  Burghoorn, F., Dingemanse, M., van Lier, R., & van Leeuwen, T. M. (2020).
+  The Relation Between Autistic Traits, the Degree of Synaesthesia, and
+  Local/Global Visual Perception. Journal of Autism and Developmental
+  Disorders, 50(1), 12-29. https://doi.org/10.1007/s10803-019-04222-7
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Size-Matching Task</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%; width: 100%;
+    background: #000; color: #fff; overflow: hidden;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+  #canvas { display: block; background: #000; }
+  .screen {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: #000; color: #fff; text-align: center; padding: 20px; box-sizing: border-box;
+  }
+  .hidden { display: none !important; }
+  .instructions { max-width: 700px; font-size: 18px; line-height: 1.5; white-space: pre-line; }
+  button, input[type=text] {
+    font-size: 16px; padding: 8px 16px; margin-top: 16px; border-radius: 6px;
+    border: 1px solid #888; background: #222; color: #fff;
+  }
+  button { cursor: pointer; }
+  button:hover { background: #333; }
+  input[type=range] { width: 300px; }
+  .cal-box {
+    background: #fff; margin: 20px auto; transition: none;
+  }
+  .small-note { font-size: 13px; color: #aaa; margin-top: 8px; max-width: 500px; }
+  #participantInput { width: 200px; }
+</style>
+</head>
+<body>
+
+<!-- ============ WELCOME / PARTICIPANT ID ============ -->
+<div id="screen-welcome" class="screen">
+  <div class="instructions">
+Welcome, and thank you for taking part.
+
+Before the task begins, we first need to quickly calibrate your screen so that objects appear at a consistent physical size.
+  </div>
+  <div>
+    <label for="participantInput">Last four digits of Banner ID: </label>
+    <input type="text" id="participantInput" placeholder="e.g. 0352">
+  </div>
+  <div class="small-note" id="participantIdError" style="color:#ff6b6b; display:none;">Please enter exactly 4 digits, numbers only.</div>
+  <button id="btnToCalibration">Continue</button>
+  <div class="small-note" id="demoNote" style="opacity:0;">Demo mode is active.</div>
+</div>
+
+<!-- ============ CALIBRATION ============ -->
+<div id="screen-calibration" class="screen hidden">
+  <div class="instructions">
+Please find a standard bank/credit/ID card and hold it flat against your screen, next to the white rectangle below.
+
+Use ONLY the slider to resize the white rectangle until its width exactly matches the width of your card. Do not use a ruler or estimate by eye -- the slider is the only control that matters here.
+  </div>
+  <div class="cal-box" id="calBox" style="width:200px; height:126px;"></div>
+  <input type="range" id="calSlider" min="50" max="800" value="200">
+  <button id="btnCalDone">Done calibrating</button>
+</div>
+
+<!-- ============ TASK INSTRUCTIONS / READY SCREEN ============ -->
+<div id="screen-ready" class="screen hidden">
+  <div class="instructions">
+In this test, you will do tasks which each involves a pair of objects.
+In each task, you are to make sure that the objects' sizes are as similar as possible. To do this, you adjust the size of one of the objects.
+To increase the size of an object, use the up arrow key. To reduce its size, use the down arrow key. When you think the objects are the same size, press space to confirm.
+Before each task you will see a small green box. It shows where the object that you can resize will be located.
+When you have finished reading, press space or Begin Task to begin.
+  </div>
+  <button id="btnBeginTask">Begin task</button>
+</div>
+
+<!-- ============ RESUME (only shown if saved progress is found) ============ -->
+<div id="screen-resume" class="screen hidden">
+  <div class="instructions">
+It looks like there's a saved session already in progress for this Banner ID.
+  </div>
+  <button id="btnResumeContinue">Continue where I left off</button>
+  <button id="btnResumeRestart">Start over</button>
+</div>
+
+<!-- ============ MAIN TASK CANVAS ============ -->
+<canvas id="canvas" class="hidden"></canvas>
+
+<!-- ============ GOODBYE / DOWNLOAD ============ -->
+<div id="screen-goodbye" class="screen hidden">
+  <div class="instructions">
+Thank you for your participation.
+
+Your data has been saved as a CSV file and should have downloaded automatically to your computer (check your Downloads folder). If it did not download, click the button below.
+
+To complete your participation, please email the downloaded CSV file to <strong>laiadr26@rowan.edu</strong>.
+  </div>
+  <button id="btnDownloadAgain">Download my data again</button>
+</div>
+
+<script>
+'use strict';
+
+/* =========================================================================
+   HELPER FUNCTIONS (equivalent of Python's random.sample / copy.deepcopy)
+   ========================================================================= */
+function shuffleArray(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+function sample(population, k) {
+  return shuffleArray(population).slice(0, k);
+}
+function deepcopy(x) {
+  return JSON.parse(JSON.stringify(x));
+}
+function indicesWhere(arr, val) {
+  const out = [];
+  arr.forEach((v, i) => { if (v === val) out.push(i); });
+  return out;
+}
+const PI = Math.PI;
+
+/* =========================================================================
+   STIMULUS SIZE / GEOMETRY CONSTANTS
+   The original task defines all sizes in "degrees of visual angle" (deg).
+   Here we treat those same numbers as centimetres instead, which is a very
+   close approximation at a ~57.3 cm viewing distance (the standard
+   "1 cm at 57 cm subtends ~1 degree" rule used throughout vision science),
+   and has the advantage of not requiring a viewing-distance estimate from
+   participants -- every stimulus is rendered at the same physical (cm) size
+   for everyone once the calibration step below is done. If your dissertation
+   needs true degrees of visual angle (accounting for each participant's
+   actual viewing distance), see the note at ASSUMED_VIEWING_DISTANCE_CM.
+   ========================================================================= */
+const ASSUMED_VIEWING_DISTANCE_CM = 57.3; // see note above
+
+const left_center = [-7, 0];
+const right_center = [7, 0];
+
+const ref_circ_diam = 1.25;
+const ref_line_len = 3;
+const ref_star_diam = 2;
+const small_line_len = 0.1851 * ref_line_len;
+const small_line_angle = PI / 4;
+const inward_oris = [1, -1, 1, -1].map(x => x * small_line_angle / PI * 180);
+const outward_oris = [-1, 1, -1, 1].map(x => x * small_line_angle / PI * 180);
+
+const adjust_circle_init_min = 0.68;
+const adjust_circle_init_max = 1.82;
+const adjust_line_init_min = 2.43;
+const adjust_line_init_max = 3.86;
+const adjust_star_init_min = 0.7;
+const adjust_star_init_max = 2.5;
+
+const adjust_circle_min = 0.59 * adjust_circle_init_min;
+const adjust_circle_max = adjust_circle_init_max;
+const adjust_line_min = 0.62 * adjust_line_init_min;
+const adjust_line_max = 1.63 * adjust_line_init_max;
+const adjust_star_min = 0.71 * adjust_star_init_min;
+const adjust_star_max = 1.20 * adjust_star_init_max;
+
+const small_circ_dist = 1.25;
+const large_circ_dist = 2.08;
+
+const outward_dist = Math.sqrt(
+  Math.pow(ref_line_len / 2, 2) + Math.pow(small_line_len / 2, 2) -
+  2 * (ref_line_len / 2) * (small_line_len / 2) * Math.cos(PI - small_line_angle)
+);
+const inward_dist = Math.sqrt(
+  Math.pow(ref_line_len / 2, 2) + Math.pow(small_line_len / 2, 2) -
+  2 * (ref_line_len / 2) * (small_line_len / 2) * Math.cos(small_line_angle)
+);
+const outward_angle = Math.asin(small_line_len / 2 * Math.sin(PI / 4) / outward_dist);
+const inward_angle = Math.asin(small_line_len / 2 * Math.sin(PI / 4) / inward_dist);
+
+const small_circ_diam = 0.42;
+const large_circ_diam = 1.67;
+
+let small_circ_pos_l = [];
+for (let c = 0; c < 8; c++) {
+  const x_displ = Math.cos(c * (2 * PI) / 8) * small_circ_dist;
+  const y_displ = Math.sin(c * (2 * PI) / 8) * small_circ_dist;
+  small_circ_pos_l.push([left_center[0] + x_displ, left_center[1] + y_displ]);
+}
+const small_circ_pos_r = small_circ_pos_l.map(([x, y]) =>
+  [x + right_center[0] - left_center[0], y + right_center[1] - left_center[1]]);
+
+let large_circ_pos_l = [];
+for (let c = 0; c < 4; c++) {
+  const x_displ = Math.cos(c * (2 * PI) / 4) * large_circ_dist;
+  const y_displ = Math.sin(c * (2 * PI) / 4) * large_circ_dist;
+  large_circ_pos_l.push([left_center[0] + x_displ, left_center[1] + y_displ]);
+}
+const large_circ_pos_r = large_circ_pos_l.map(([x, y]) =>
+  [x + right_center[0] - left_center[0], y + right_center[1] - left_center[1]]);
+
+let inward_line_pos_l = [];
+const inward_angles = [inward_angle, PI - inward_angle, PI + inward_angle, -inward_angle];
+for (const alpha of inward_angles) {
+  const x_displ = Math.cos(alpha) * inward_dist;
+  const y_displ = Math.sin(alpha) * inward_dist;
+  inward_line_pos_l.push([left_center[0] + x_displ, left_center[1] + y_displ]);
+}
+const inward_line_pos_r = inward_line_pos_l.map(([x, y]) =>
+  [x + right_center[0] - left_center[0], y + right_center[1] - left_center[1]]);
+
+let outward_line_pos_l = [];
+const outward_angles = [outward_angle, PI - outward_angle, PI + outward_angle, -outward_angle];
+for (const alpha of outward_angles) {
+  const x_displ = Math.cos(alpha) * outward_dist;
+  const y_displ = Math.sin(alpha) * outward_dist;
+  outward_line_pos_l.push([left_center[0] + x_displ, left_center[1] + y_displ]);
+}
+const outward_line_pos_r = outward_line_pos_l.map(([x, y]) =>
+  [x + right_center[0] - left_center[0], y + right_center[1] - left_center[1]]);
+
+// PsychoPy's built-in "star7" vertex set (14 points, normalised to a unit box)
+const STAR7 = [
+  [0.0, 0.5], [0.09, 0.18], [0.39, 0.31], [0.19, 0.04], [0.49, -0.11],
+  [0.16, -0.12], [0.22, -0.45], [0.0, -0.2], [-0.22, -0.45], [-0.16, -0.12],
+  [-0.49, -0.11], [-0.19, 0.04], [-0.39, 0.31], [-0.09, 0.18]
+];
+
+/* =========================================================================
+   TRIAL-ORDER GENERATION
+   (counterbalances Ebbinghaus/Muller-Lyer blocks, context/no-context, and
+   left/right placement -- mirrors the original PsychoPy experiment exactly)
+   ========================================================================= */
+let trial_spec = [];
+let con_positions = [];
+let con_noc_order = [];
+
+let ill_type_order = sample(
+  [['ebbing', 'muller', 'ebbing', 'muller'], ['muller', 'ebbing', 'muller', 'ebbing']], 1
+)[0];
+
+const cont_spec_options = [
+  [['noc', 'con'], ['con', 'noc']],
+  [['con', 'noc'], ['noc', 'con']]
+];
+const cont_spec_shuffled = shuffleArray(cont_spec_options);
+const cont_spec = [
+  cont_spec_shuffled[0][0], cont_spec_shuffled[1][0],
+  cont_spec_shuffled[0][1], cont_spec_shuffled[1][1]
+];
+
+for (let i = 0; i < ill_type_order.length; i++) {
+  const ill_type = ill_type_order[i];
+  let cont_ls = [];
+  for (const cont_type of cont_spec[i]) {
+    const loop_pos = sample(Array(5).fill('l').concat(Array(5).fill('r')), 10);
+    cont_ls.push([cont_type, loop_pos]);
+    if (cont_type === 'con') con_positions = con_positions.concat(loop_pos);
+    con_noc_order.push(cont_type);
+  }
+  trial_spec.push([ill_type, cont_ls]);
+}
+
+let l_r_count = 0;
+let first_last_10_count = 0;
+let block_count = 0;
+
+const con_pos_1_3 = con_positions.slice(0, 10).concat(con_positions.slice(20, 30));
+const con_pos_2_4 = con_positions.slice(10, 20).concat(con_positions.slice(30, 40));
+const l_1_3 = indicesWhere(con_pos_1_3, 'l');
+const r_1_3 = indicesWhere(con_pos_1_3, 'r');
+
+let adj_stim_lr_con_1_3 = new Array(20).fill('');
+let adj_stim_lr_con_2_4 = new Array(20).fill('');
+for (const side_indices_ls of [l_1_3, r_1_3]) {
+  const rand_10_pos = sample(Array(5).fill('l').concat(Array(5).fill('r')), 10);
+  side_indices_ls.forEach((ind, k) => { adj_stim_lr_con_1_3[ind] = rand_10_pos[k]; });
+}
+for (const side_indices_ls of [l_1_3, r_1_3]) {
+  const rand_10_pos = sample(Array(5).fill('l').concat(Array(5).fill('r')), 10);
+  side_indices_ls.forEach((ind, k) => { adj_stim_lr_con_2_4[ind] = rand_10_pos[k]; });
+}
+
+let adj_stim_lr = [];
+const adj_stim_lr_con = adj_stim_lr_con_1_3.slice(0, 10)
+  .concat(adj_stim_lr_con_2_4.slice(0, 10))
+  .concat(adj_stim_lr_con_1_3.slice(10, 20))
+  .concat(adj_stim_lr_con_2_4.slice(10, 20));
+
+let lower_index_loop = 0;
+for (const context_or_no of con_noc_order) {
+  if (context_or_no === 'con') {
+    adj_stim_lr = adj_stim_lr.concat(adj_stim_lr_con.slice(lower_index_loop, lower_index_loop + 10));
+    lower_index_loop += 10;
+  } else {
+    adj_stim_lr = adj_stim_lr.concat(sample(Array(5).fill('l').concat(Array(5).fill('r')), 10));
+  }
+}
+
+let adj_lr_count = 0;
+let do_star = true;
+const N_TOTAL_TRIALS = ill_type_order.length * 21; // 4 blocks * (1 practice + 20 test) = 84
+
+/* =========================================================================
+   DOM / CANVAS SETUP
+   ========================================================================= */
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+let px_per_cm = 40; // overwritten by calibration
+
+function toPx(posCm) {
+  return {
+    x: canvas.width / 2 + posCm[0] * px_per_cm,
+    y: canvas.height / 2 - posCm[1] * px_per_cm
+  };
+}
+function cmPx(sizeCm) { return sizeCm * px_per_cm; }
+
+function drawCircle(posCm, diamCm, color) {
+  const p = toPx(posCm);
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, cmPx(diamCm) / 2, 0, 2 * Math.PI);
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+function drawRect(posCm, widthCm, heightCm, oriDeg, color) {
+  const p = toPx(posCm);
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate(oriDeg * Math.PI / 180);
+  ctx.fillStyle = color;
+  ctx.fillRect(-cmPx(widthCm) / 2, -cmPx(heightCm) / 2, cmPx(widthCm), cmPx(heightCm));
+  ctx.restore();
+}
+function drawStar(posCm, diamCm, color) {
+  const p = toPx(posCm);
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.beginPath();
+  STAR7.forEach(([vx, vy], i) => {
+    const px = vx * cmPx(diamCm);
+    const py = -vy * cmPx(diamCm);
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  });
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.restore();
+}
+function clearCanvas() {
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+/* =========================================================================
+   STATE MACHINE / TASK FLOW
+   ========================================================================= */
+const screens = {
+  welcome: document.getElementById('screen-welcome'),
+  calibration: document.getElementById('screen-calibration'),
+  ready: document.getElementById('screen-ready'),
+  canvas: canvas,
+  goodbye: document.getElementById('screen-goodbye'),
+  resume: document.getElementById('screen-resume')
+};
+function showScreen(name) {
+  Object.values(screens).forEach(el => el.classList.add('hidden'));
+  screens[name].classList.remove('hidden');
+}
+
+let participantId = '';
+let dataRows = [];
+const sessionStartIso = new Date().toISOString();
+
+/* =========================================================================
+   OPTIONAL: participant ID passed in via URL, e.g. from a Qualtrics link like
+   https://yoursite.example/ebbinghaus_mullerlyer.html?pid=0352
+   If present, the ID field is pre-filled and locked so it can't be
+   accidentally changed or mistyped after leaving Qualtrics.
+   ========================================================================= */
+(function prefillParticipantIdFromUrl() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const pidFromUrl = urlParams.get('pid');
+  if (pidFromUrl) {
+    const pInput = document.getElementById('participantInput');
+    pInput.value = pidFromUrl;
+    // only lock the field if it's actually a valid 4-digit ID -- otherwise
+    // leave it editable so the participant/researcher can correct it
+    if (/^[0-9]{4}$/.test(pidFromUrl)) {
+      pInput.readOnly = true;
+    }
+  }
+})();
+
+// ---- calibration screen wiring ----
+const STANDARD_CARD_WIDTH_CM = 8.56; // ISO/IEC 7810 ID-1 format (bank/credit cards, most ID cards)
+const calBox = document.getElementById('calBox');
+const calSlider = document.getElementById('calSlider');
+function updateCalBox() {
+  const wPx = Number(calSlider.value);
+  calBox.style.width = wPx + 'px';
+  calBox.style.height = (wPx * (5.398 / 8.56)) + 'px'; // keep standard card aspect ratio
+}
+calSlider.addEventListener('input', updateCalBox);
+updateCalBox();
+
+// ---- progress autosave / resume ----
+// Saved to localStorage (this file's real-world use is participants opening it
+// directly in their own browser, where localStorage works normally -- it may
+// not persist inside an in-chat preview, but that doesn't affect the
+// downloaded file). This is a safety net for accidental closures/crashes; the
+// task deliberately never tells participants that pausing and resuming later
+// is an option, since doing the study across multiple sessions/days would
+// hurt data quality.
+const PROGRESS_KEY_PREFIX = 'ebbinghaus_mullerlyer_progress_';
+function progressKey(id) { return PROGRESS_KEY_PREFIX + id; }
+
+function saveProgress() {
+  try {
+    const state = {
+      participantId, px_per_cm, demoMode: !!window.__demoMode,
+      trial_spec, ill_type_order, adj_stim_lr,
+      l_r_count, first_last_10_count, block_count, adj_lr_count, do_star,
+      trialsCompleted, dataRows, savedAt: new Date().toISOString()
+    };
+    window.localStorage.setItem(progressKey(participantId), JSON.stringify(state));
+  } catch (err) {
+    console.warn('Could not save progress:', err);
+  }
+}
+function loadProgress(id) {
+  try {
+    const raw = window.localStorage.getItem(progressKey(id));
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) {
+    return null;
+  }
+}
+function clearProgress(id) {
+  try { window.localStorage.removeItem(progressKey(id)); } catch (err) {}
+}
+function restoreProgress(saved) {
+  participantId = saved.participantId;
+  px_per_cm = saved.px_per_cm;
+  window.__demoMode = saved.demoMode;
+  if (saved.demoMode) document.getElementById('demoNote').style.opacity = '1';
+  trial_spec = saved.trial_spec;
+  ill_type_order = saved.ill_type_order;
+  adj_stim_lr = saved.adj_stim_lr;
+  l_r_count = saved.l_r_count;
+  first_last_10_count = saved.first_last_10_count;
+  block_count = saved.block_count;
+  adj_lr_count = saved.adj_lr_count;
+  do_star = saved.do_star;
+  trialsCompleted = saved.trialsCompleted;
+  dataRows = saved.dataRows;
+}
+
+// ---- welcome / ID entry, demo trigger, and resume check ----
+const DEMO_ID_TRIGGER = 'psypreview';
+const DEMO_PASSWORD = '01311997';
+const DEMO_TRIAL_COUNT = 25; // ~1-2 min taste of the task; crosses into a 2nd block so both
+                              // illusion types appear, though not full context/side balance
+
+document.getElementById('btnToCalibration').addEventListener('click', () => {
+  const enteredId = document.getElementById('participantInput').value.trim();
+  const errorEl = document.getElementById('participantIdError');
+
+  if (enteredId.toLowerCase() === DEMO_ID_TRIGGER) {
+    errorEl.style.display = 'none';
+    const entered = window.prompt('Preview password:');
+    if (entered === DEMO_PASSWORD) {
+      window.__demoMode = true;
+      document.getElementById('demoNote').style.opacity = '1';
+      participantId = 'DEMO_' + Date.now();
+      showScreen('calibration');
+    } else if (entered !== null) {
+      window.alert('Incorrect password.');
+    }
+    return;
+  }
+
+  if (!/^[0-9]{4}$/.test(enteredId)) {
+    errorEl.style.display = 'block';
+    return;
+  }
+  errorEl.style.display = 'none';
+
+  participantId = enteredId;
+  const saved = loadProgress(participantId);
+  if (saved && saved.ill_type_order && saved.trialsCompleted < saved.ill_type_order.length * 21) {
+    showScreen('resume');
+  } else {
+    showScreen('calibration');
+  }
+});
+
+document.getElementById('btnResumeContinue').addEventListener('click', () => {
+  const saved = loadProgress(participantId);
+  restoreProgress(saved);
+  showScreen('canvas');
+  document.addEventListener('keydown', onKeyDown);
+  nextIndicatorPhase();
+  requestAnimationFrame(renderLoop);
+});
+document.getElementById('btnResumeRestart').addEventListener('click', () => {
+  clearProgress(participantId);
+  showScreen('calibration');
+});
+
+document.getElementById('btnCalDone').addEventListener('click', () => {
+  const measuredPx = Number(calSlider.value);
+  px_per_cm = measuredPx / STANDARD_CARD_WIDTH_CM;
+  saveProgress(); // so a resume after this point skips re-calibration
+  showScreen('ready');
+  document.addEventListener('keydown', onReadyScreenKeyDown);
+});
+
+function beginTaskFromReadyScreen() {
+  document.removeEventListener('keydown', onReadyScreenKeyDown);
+  startTrialSequence();
+}
+function onReadyScreenKeyDown(e) {
+  if (e.code === 'Space') {
+    e.preventDefault();
+    beginTaskFromReadyScreen();
+  }
+}
+document.getElementById('btnBeginTask').addEventListener('click', beginTaskFromReadyScreen);
+
+document.getElementById('btnDownloadAgain').addEventListener('click', downloadCsv);
+
+/* ---- trial sequencing ---- */
+let phase = null; // 'indicator' | 'trial'
+let adjust_pos_side, adjust_pos, reference_pos, l_r_val, noc_con;
+let adjust_size, ref_size, adjustment_counter, has_changed;
+let adjust_con_pos, static_con_pos, adjust_con_oris, static_con_oris, adjust_diff_len;
+let small_circ_pos, large_circ_pos;
+let trialsCompleted = 0;
+let phaseStartTime = 0;
+let trialStartTime = 0;
+
+function startTrialSequence() {
+  showScreen('canvas');
+  document.addEventListener('keydown', onKeyDown);
+  nextIndicatorPhase();
+  requestAnimationFrame(renderLoop);
+}
+
+function pickAdjustPosSide() {
+  if (do_star) {
+    adjust_pos_side = sample(['l', 'r'], 1)[0];
+  } else {
+    adjust_pos_side = adj_stim_lr[adj_lr_count];
+  }
+  adjust_pos = (adjust_pos_side === 'l') ? left_center : right_center;
+}
+
+function nextIndicatorPhase() {
+  pickAdjustPosSide();
+  phase = 'indicator';
+  phaseStartTime = performance.now();
+}
+
+function setUpTrial() {
+  l_r_val = trial_spec[block_count][1][first_last_10_count][1][l_r_count];
+  noc_con = trial_spec[block_count][1][first_last_10_count][0];
+  reference_pos = (adjust_pos_side === 'r') ? left_center : right_center;
+
+  has_changed = false;
+  adjustment_counter = 0;
+  trialStartTime = performance.now();
+
+  if (do_star) {
+    adjust_size = adjust_star_init_min + (adjust_star_init_max - adjust_star_init_min) * Math.random();
+    ref_size = ref_star_diam;
+  } else if (trial_spec[block_count][0] === 'ebbing') {
+    adjust_size = adjust_circle_init_min + (adjust_circle_init_max - adjust_circle_init_min) * Math.random();
+    ref_size = ref_circ_diam;
+    if (noc_con === 'con') {
+      if (l_r_val === 'l') { small_circ_pos = small_circ_pos_l; large_circ_pos = large_circ_pos_r; }
+      else { small_circ_pos = small_circ_pos_r; large_circ_pos = large_circ_pos_l; }
+    }
+  } else if (trial_spec[block_count][0] === 'muller') {
+    adjust_size = adjust_line_init_min + (adjust_line_init_max - adjust_line_init_min) * Math.random();
+    adjust_diff_len = adjust_size - ref_line_len;
+    ref_size = ref_line_len;
+    if (noc_con === 'con') {
+      if (l_r_val === 'l') {
+        if (adjust_pos_side === 'l') {
+          adjust_con_pos = deepcopy(inward_line_pos_l); static_con_pos = outward_line_pos_r;
+          adjust_con_oris = inward_oris; static_con_oris = outward_oris;
+        } else {
+          adjust_con_pos = deepcopy(outward_line_pos_r); static_con_pos = inward_line_pos_l;
+          adjust_con_oris = outward_oris; static_con_oris = inward_oris;
+        }
+      } else {
+        if (adjust_pos_side === 'l') {
+          adjust_con_pos = deepcopy(outward_line_pos_l); static_con_pos = inward_line_pos_r;
+          adjust_con_oris = outward_oris; static_con_oris = inward_oris;
+        } else {
+          adjust_con_pos = deepcopy(inward_line_pos_r); static_con_pos = outward_line_pos_l;
+          adjust_con_oris = inward_oris; static_con_oris = outward_oris;
+        }
+      }
+      for (const pos of adjust_con_pos) {
+        if (pos[0] > adjust_pos[0]) pos[0] += adjust_diff_len / 2;
+        else pos[0] -= adjust_diff_len / 2;
+      }
+      has_changed = false;
+    }
+  }
+  phase = 'trial';
+  phaseStartTime = performance.now();
+}
+
+function onKeyDown(e) {
+  if (phase !== 'trial') return;
+  const illType = do_star ? 'star' : trial_spec[block_count][0];
+  const maxVal = do_star ? adjust_star_max : (illType === 'ebbing' ? adjust_circle_max : adjust_line_max);
+  const minVal = do_star ? adjust_star_min : (illType === 'ebbing' ? adjust_circle_min : adjust_line_min);
+
+  if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (adjust_size < maxVal) {
+      const adjust_change = 0.05 * adjust_size;
+      adjust_size += adjust_change;
+      has_changed = true;
+      adjustment_counter += 1;
+      if (illType === 'muller' && noc_con === 'con') shiftMullerContext(adjust_change);
+    }
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (adjust_size > minVal) {
+      const adjust_change = -0.05 * adjust_size;
+      adjust_size += adjust_change;
+      has_changed = true;
+      adjustment_counter += 1;
+      if (illType === 'muller' && noc_con === 'con') shiftMullerContext(adjust_change);
+    }
+  } else if (e.code === 'Space') {
+    e.preventDefault();
+    finishTrial();
+  }
+}
+
+function shiftMullerContext(adjust_change) {
+  if (!has_changed) return;
+  for (const pos of adjust_con_pos) {
+    if (pos[0] > adjust_pos[0]) pos[0] += adjust_change / 2;
+    else pos[0] -= adjust_change / 2;
+  }
+}
+
+function finishTrial() {
+  const trialDurationS = (performance.now() - trialStartTime) / 1000;
+  const row = {
+    thisN: trialsCompleted,
+    'trial.duration': trialDurationS.toFixed(4),
+    'trial.adjustable_side': adjust_pos_side,
+    'trial.adjustments_counts': adjustment_counter,
+    'trial.illusion_type': do_star ? 'star' : trial_spec[block_count][0],
+    'trial.context_used': do_star ? 'no_context' : (noc_con === 'con' ? 'context' : 'no_context'),
+    'trial.small_circle_inward_arrow_side': do_star ? 'no_context' : (noc_con === 'con' ? l_r_val : 'no_context'),
+    reference_minus_adjustable_size_cm: (ref_size - adjust_size).toFixed(4),
+    piloting: !!window.__demoMode,
+    participant: participantId,
+    date: sessionStartIso,
+    expName: 'ebbinghaus_mullerlyer',
+    expVersion: 'html1',
+    px_per_cm: px_per_cm.toFixed(3)
+  };
+  dataRows.push(row);
+  trialsCompleted += 1;
+
+  if (do_star) {
+    do_star = false;
+  } else {
+    l_r_count += 1;
+    adj_lr_count += 1;
+  }
+  if (l_r_count >= 10) {
+    first_last_10_count += 1;
+    l_r_count = 0;
+    if (first_last_10_count >= 2) {
+      block_count += 1;
+      do_star = true;
+      first_last_10_count = 0;
+    }
+  }
+
+  saveProgress();
+
+  const effectiveTotal = window.__demoMode ? DEMO_TRIAL_COUNT : N_TOTAL_TRIALS;
+  if (trialsCompleted >= effectiveTotal) {
+    endExperiment();
+  } else {
+    nextIndicatorPhase();
+  }
+}
+
+function endExperiment() {
+  document.removeEventListener('keydown', onKeyDown);
+  clearProgress(participantId);
+  showScreen('goodbye');
+  downloadCsv();
+}
+
+function downloadCsv() {
+  if (dataRows.length === 0) return;
+  const headers = Object.keys(dataRows[0]);
+  const lines = [headers.join(',')];
+  dataRows.forEach(row => {
+    lines.push(headers.map(h => String(row[h]).replace(/,/g, ';')).join(','));
+  });
+  const csv = lines.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${participantId}_ebbinghaus_mullerlyer.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/* =========================================================================
+   RENDER LOOP
+   ========================================================================= */
+function renderLoop() {
+  clearCanvas();
+
+  if (window.__demoMode) {
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.font = '14px Arial';
+    ctx.fillText(`DEMO MODE  (trial ${trialsCompleted + 1} of ${DEMO_TRIAL_COUNT})`, 10, 20);
+  }
+
+  if (phase === 'indicator') {
+    const elapsed = (performance.now() - phaseStartTime) / 1000;
+    const boxCm = 1; // matches original 1x1 deg green box, treated as 1x1 cm here
+    drawRect(adjust_pos, boxCm, boxCm, 0, 'rgb(0,255,0)');
+    if (elapsed >= 1.0) setUpTrial();
+  } else if (phase === 'trial') {
+    const illType = do_star ? 'star' : trial_spec[block_count][0];
+    if (illType === 'star') {
+      drawStar(reference_pos, ref_size, 'rgb(255,255,0)');
+      drawStar(adjust_pos, adjust_size, 'rgb(255,255,0)');
+    } else if (illType === 'ebbing') {
+      if (noc_con === 'con') {
+        large_circ_pos.forEach(p => drawCircle(p, large_circ_diam, 'white'));
+        small_circ_pos.forEach(p => drawCircle(p, small_circ_diam, 'white'));
+      }
+      drawCircle(reference_pos, ref_size, 'white');
+      drawCircle(adjust_pos, adjust_size, 'white');
+    } else if (illType === 'muller') {
+      const armH = 0.02364 * ref_line_len;
+      if (noc_con === 'con') {
+        const contextW = 0.1851 * ref_line_len;
+        adjust_con_pos.forEach((p, i) => drawRect(p, contextW, armH, adjust_con_oris[i], 'white'));
+        static_con_pos.forEach((p, i) => drawRect(p, contextW, armH, static_con_oris[i], 'white'));
+      }
+      drawRect(adjust_pos, adjust_size, armH, 0, 'white');
+      drawRect(reference_pos, ref_size, armH, 0, 'white');
+    }
+  }
+
+  requestAnimationFrame(renderLoop);
+}
+
+/* =========================================================================
+   DEBUG HOOK -- harmless, not used by the task itself. Lets you inspect
+   live state from the browser console while piloting, e.g.:
+     __debug.dataRows           (trial data logged so far)
+     __debug.trial_spec         (the generated block/trial order for this run)
+   ========================================================================= */
+window.__debug = {
+  get dataRows() { return dataRows; },
+  get trial_spec() { return trial_spec; },
+  get ill_type_order() { return ill_type_order; },
+  get N_TOTAL_TRIALS() { return N_TOTAL_TRIALS; },
+  get block_count() { return block_count; },
+  get first_last_10_count() { return first_last_10_count; },
+  get l_r_count() { return l_r_count; },
+  get do_star() { return do_star; },
+  get adj_stim_lr() { return adj_stim_lr; },
+  get phase() { return phase; },
+  get px_per_cm() { return px_per_cm; },
+  setUpTrial, onKeyDown, finishTrial, startTrialSequence
+};
+</script>
+</body>
+</html>
