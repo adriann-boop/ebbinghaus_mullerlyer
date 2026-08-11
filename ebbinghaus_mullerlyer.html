@@ -192,11 +192,9 @@ const PI = Math.PI;
    "1 cm at 57 cm subtends ~1 degree" rule used throughout vision science),
    and has the advantage of not requiring a viewing-distance estimate from
    participants -- every stimulus is rendered at the same physical (cm) size
-   for everyone once the calibration step below is done. If your dissertation
-   needs true degrees of visual angle (accounting for each participant's
-   actual viewing distance), see the note at ASSUMED_VIEWING_DISTANCE_CM.
+   for everyone once the calibration step below is done. 
    ========================================================================= */
-const ASSUMED_VIEWING_DISTANCE_CM = 57.3; // see note above
+const ASSUMED_VIEWING_DISTANCE_CM = 57.3; 
 
 const left_center = [-7, 0];
 const right_center = [7, 0];
@@ -288,7 +286,7 @@ const STAR7 = [
 /* =========================================================================
    TRIAL-ORDER GENERATION
    (counterbalances Ebbinghaus/Muller-Lyer blocks, context/no-context, and
-   left/right placement -- mirrors the original PsychoPy experiment exactly)
+   left/right placement)
    ========================================================================= */
 let trial_spec = [];
 let con_positions = [];
@@ -439,10 +437,7 @@ let dataRows = [];
 const sessionStartIso = new Date().toISOString();
 
 /* =========================================================================
-   OPTIONAL: participant ID passed in via URL, e.g. from a Qualtrics link like
-   https://yoursite.example/ebbinghaus_mullerlyer.html?pid=0352
-   If present, the ID field is pre-filled and locked so it can't be
-   accidentally changed or mistyped after leaving Qualtrics.
+   OPTIONAL: participant ID passed in via Qualtrics link   
    ========================================================================= */
 (function prefillParticipantIdFromUrl() {
   const urlParams = new URLSearchParams(window.location.search);
@@ -471,13 +466,7 @@ calSlider.addEventListener('input', updateCalBox);
 updateCalBox();
 
 // ---- progress autosave / resume ----
-// Saved to localStorage (this file's real-world use is participants opening it
-// directly in their own browser, where localStorage works normally -- it may
-// not persist inside an in-chat preview, but that doesn't affect the
-// downloaded file). This is a safety net for accidental closures/crashes; the
-// task deliberately never tells participants that pausing and resuming later
-// is an option, since doing the study across multiple sessions/days would
-// hurt data quality.
+// Saved to localStorage 
 const PROGRESS_KEY_PREFIX = 'ebbinghaus_mullerlyer_progress_';
 function progressKey(id) { return PROGRESS_KEY_PREFIX + id; }
 
@@ -525,11 +514,7 @@ function restoreProgress(saved) {
 // ---- welcome / ID entry, demo trigger, and resume check ----
 const DEMO_ID_TRIGGER = 'psypreview';
 const DEMO_PASSWORD = '10203040';
-const DEMO_TRIAL_COUNT = 10; // short taste of the task: the practice trial plus one
-                              // block of a single condition (context or no-context)
-                              // of whichever illusion type is randomly drawn first --
-                              // increase this if you want the demo to also show the
-                              // other context condition or the second illusion type
+const DEMO_TRIAL_COUNT = 10; 
 
 document.getElementById('btnToCalibration').addEventListener('click', () => {
   const enteredId = document.getElementById('participantInput').value.trim();
@@ -839,10 +824,7 @@ function renderLoop() {
 }
 
 /* =========================================================================
-   DEBUG HOOK -- harmless, not used by the task itself. Lets you inspect
-   live state from the browser console while piloting, e.g.:
-     __debug.dataRows           (trial data logged so far)
-     __debug.trial_spec         (the generated block/trial order for this run)
+   DEBUG HOOK
    ========================================================================= */
 window.__debug = {
   get dataRows() { return dataRows; },
