@@ -30,12 +30,35 @@
   }
   .hidden { display: none !important; }
   .instructions { max-width: 700px; font-size: 18px; line-height: 1.5; white-space: pre-line; }
+  .controls-grid {
+    display: flex; gap: 36px; justify-content: center; align-items: flex-start;
+    margin: 28px 0; flex-wrap: wrap;
+  }
+  .control-item { display: flex; flex-direction: column; align-items: center; max-width: 140px; }
+  .key {
+    min-width: 56px; height: 56px; padding: 0 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 26px; font-weight: bold; font-family: Arial, sans-serif;
+    background: #1c1c1c; border: 2px solid #666; border-bottom: 5px solid #666;
+    border-radius: 10px; color: #fff;
+  }
+  .key-wide { min-width: 140px; font-size: 16px; letter-spacing: 2px; }
+  .control-label { margin-top: 10px; font-size: 15px; color: #ccc; line-height: 1.3; }
+  .ready-note { font-size: 16px; color: #ccc; max-width: 600px; margin: 0 auto 8px auto; }
   button, input[type=text] {
     font-size: 16px; padding: 8px 16px; margin-top: 16px; border-radius: 6px;
     border: 1px solid #888; background: #222; color: #fff;
   }
   button { cursor: pointer; }
   button:hover { background: #333; }
+  .btn-primary {
+    font-size: 18px; font-weight: bold; padding: 14px 36px; margin-top: 24px;
+    background: #2f7dfa; border: none; border-radius: 30px; color: #fff;
+    box-shadow: 0 4px 14px rgba(47,125,250,0.45);
+    transition: background 0.15s, transform 0.1s;
+  }
+  .btn-primary:hover { background: #4f92ff; transform: translateY(-1px); }
+  .btn-primary:active { transform: translateY(0); }
   input[type=range] { width: 300px; }
   .cal-box {
     background: #fff; margin: 20px auto; transition: none;
@@ -49,7 +72,7 @@
 <!-- ============ WELCOME / PARTICIPANT ID ============ -->
 <div id="screen-welcome" class="screen">
   <div class="instructions">
-Welcome, and thank you for taking part.
+Welcome to the computerized task.
 
 Before the task begins, we first need to quickly calibrate your screen so that objects appear at a consistent physical size.
   </div>
@@ -65,7 +88,7 @@ Before the task begins, we first need to quickly calibrate your screen so that o
 <!-- ============ CALIBRATION ============ -->
 <div id="screen-calibration" class="screen hidden">
   <div class="instructions">
-Please find a standard bank/credit/ID card and hold it flat against your screen, next to the white rectangle below.
+Please find a Rowan ID card/standard credit card/similarly sized card and hold it flat against your screen, next to the white rectangle below.
 
 Use ONLY the slider to resize the white rectangle until its width exactly matches the width of your card. Do not use a ruler or estimate by eye -- the slider is the only control that matters here.
   </div>
@@ -76,14 +99,31 @@ Use ONLY the slider to resize the white rectangle until its width exactly matche
 
 <!-- ============ TASK INSTRUCTIONS / READY SCREEN ============ -->
 <div id="screen-ready" class="screen hidden">
-  <div class="instructions">
-In this test, you will do tasks which each involves a pair of objects.
-In each task, you are to make sure that the objects' sizes are as similar as possible. To do this, you adjust the size of one of the objects.
-To increase the size of an object, use the up arrow key. To reduce its size, use the down arrow key. When you think the objects are the same size, press space to confirm.
-Before each task you will see a small green box. It shows where the object that you can resize will be located.
-When you have finished reading, press space or Begin Task to begin.
+  <div class="instructions" style="margin-bottom:8px;">
+In this test, you will do a series of tasks, each involving a pair of objects. Your job is to adjust the size of one object so that it matches the other as closely as possible.
   </div>
-  <button id="btnBeginTask">Begin task</button>
+
+  <div class="controls-grid">
+    <div class="control-item">
+      <div class="key">&#8593;</div>
+      <div class="control-label">Increase size</div>
+    </div>
+    <div class="control-item">
+      <div class="key">&#8595;</div>
+      <div class="control-label">Decrease size</div>
+    </div>
+    <div class="control-item">
+      <div class="key key-wide">SPACE</div>
+      <div class="control-label">Confirm when the sizes match</div>
+    </div>
+  </div>
+
+  <div class="ready-note">
+Before each task, a small green box will briefly appear on screen. It shows where the object you can resize will be located.
+  </div>
+
+  <button id="btnBeginTask" class="btn-primary">Begin Task</button>
+  <div class="small-note">or press SPACE to begin</div>
 </div>
 
 <!-- ============ RESUME (only shown if saved progress is found) ============ -->
@@ -103,9 +143,9 @@ It looks like there's a saved session already in progress for this Banner ID.
   <div class="instructions">
 Thank you for your participation.
 
-Your data has been saved as a CSV file and should have downloaded automatically to your computer (check your Downloads folder). If it did not download, click the button below.
+Your data has been saved as a CSV file and should have downloaded automatically to your computer (check your Downloads folder). If it did not download, click the button below to download it again.
 
-To complete your participation, please email the downloaded CSV file to <strong>laiadr26@rowan.edu</strong>.
+Please return to the Qualtrics survey tab and upload this CSV file there to complete your participation. If you're unable to upload it there for any reason, please email it instead to <strong>laiadr26@rowan.edu</strong>.
   </div>
   <button id="btnDownloadAgain">Download my data again</button>
 </div>
@@ -478,8 +518,11 @@ function restoreProgress(saved) {
 // ---- welcome / ID entry, demo trigger, and resume check ----
 const DEMO_ID_TRIGGER = 'psypreview';
 const DEMO_PASSWORD = '01311997';
-const DEMO_TRIAL_COUNT = 25; // ~1-2 min taste of the task; crosses into a 2nd block so both
-                              // illusion types appear, though not full context/side balance
+const DEMO_TRIAL_COUNT = 10; // short taste of the task: the practice trial plus one
+                              // block of a single condition (context or no-context)
+                              // of whichever illusion type is randomly drawn first --
+                              // increase this if you want the demo to also show the
+                              // other context condition or the second illusion type
 
 document.getElementById('btnToCalibration').addEventListener('click', () => {
   const enteredId = document.getElementById('participantInput').value.trim();
