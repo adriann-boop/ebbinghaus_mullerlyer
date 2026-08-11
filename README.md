@@ -2,8 +2,7 @@
 
 A standalone, single-file HTML/JavaScript implementation of an Ebbinghaus and
 Müller-Lyer illusion size-matching task, built for unsupervised online
-administration (e.g. linked from a Qualtrics survey). No server, account, or
-installation required — participants just open the page in a browser.
+administration (e.g. linked from a Qualtrics survey). 
 
 ## What it does
 
