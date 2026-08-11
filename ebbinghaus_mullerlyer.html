@@ -45,6 +45,12 @@
   .key-wide { min-width: 140px; font-size: 16px; letter-spacing: 2px; }
   .control-label { margin-top: 10px; font-size: 15px; color: #ccc; line-height: 1.3; }
   .ready-note { font-size: 16px; color: #ccc; max-width: 600px; margin: 0 auto 8px auto; }
+  .callout-warning {
+    max-width: 600px; margin: 24px auto 32px auto; padding: 12px 18px;
+    background: rgba(255,183,3,0.08); border: none; border-left: 4px solid #ffb703;
+    border-radius: 0; text-align: left; color: #ffd873; font-size: 16px; font-weight: bold;
+    line-height: 1.4;
+  }
   button, input[type=text] {
     font-size: 16px; padding: 8px 16px; margin-top: 16px; border-radius: 6px;
     border: 1px solid #888; background: #222; color: #fff;
@@ -145,8 +151,9 @@ Thank you for your participation.
 
 Your data has been saved as a CSV file and should have downloaded automatically to your computer (check your Downloads folder). If it did not download, click the button below to download it again.
 
-Please return to the Qualtrics survey tab and upload this CSV file there to complete your participation. If you're unable to upload it there for any reason, please email it instead to <strong>laiadr26@rowan.edu</strong>.
+Please return to the Qualtrics survey tab to upload that CSV file there.
   </div>
+  <div class="callout-warning">&#9888;&#65039; Your research participation is not complete without uploading the CSV to Qualtrics.</div>
   <button id="btnDownloadAgain">Download my data again</button>
 </div>
 
@@ -517,7 +524,7 @@ function restoreProgress(saved) {
 
 // ---- welcome / ID entry, demo trigger, and resume check ----
 const DEMO_ID_TRIGGER = 'psypreview';
-const DEMO_PASSWORD = '01311997';
+const DEMO_PASSWORD = '10203040';
 const DEMO_TRIAL_COUNT = 10; // short taste of the task: the practice trial plus one
                               // block of a single condition (context or no-context)
                               // of whichever illusion type is randomly drawn first --
