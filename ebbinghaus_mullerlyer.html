@@ -65,6 +65,13 @@
   }
   .btn-primary:hover { background: #4f92ff; transform: translateY(-1px); }
   .btn-primary:active { transform: translateY(0); }
+  .btn-secondary {
+    padding: 14px 28px; margin-top: 24px;
+    background: transparent; border: 1px solid #666; border-radius: 30px; color: #ccc;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .btn-secondary:hover { border-color: #999; color: #fff; background: transparent; }
+  .btn-row { display: flex; gap: 16px; align-items: center; justify-content: center; }
   input[type=range] { width: 300px; }
   .cal-box {
     background: #fff; margin: 20px auto; transition: none;
@@ -74,6 +81,15 @@
 </style>
 </head>
 <body>
+
+<!-- ============ NO-LOCALSTORAGE WARNING (shown only if the browser blocks it) ============ -->
+<div id="noStorageWarning" class="hidden" style="position:fixed; top:0; left:0; width:100%; background:#7a1f1f; color:#fff; padding:10px 16px; text-align:center; font-weight:bold; font-size:14px; z-index:9999; box-sizing:border-box;">
+  Please don't close this tab until you have completely finished the computerized task or else you may have to restart the computerized task.
+</div>
+
+<div id="multiTabWarning" class="hidden" style="position:fixed; top:0; left:0; width:100%; background:#7a1f1f; color:#fff; padding:10px 16px; text-align:center; font-weight:bold; font-size:14px; z-index:9999; box-sizing:border-box;">
+  This task appears to be open in another tab or window. Please close this tab and continue in the other one.
+</div>
 
 <!-- ============ WELCOME / PARTICIPANT ID ============ -->
 <div id="screen-welcome" class="screen">
@@ -102,7 +118,10 @@ Please sit at a comfortable distance from your screen, similar to how you'd norm
   </div>
   <div class="cal-box" id="calBox" style="width:200px; height:126px;"></div>
   <input type="range" id="calSlider" min="50" max="800" value="200">
-  <button id="btnCalDone">Done calibrating</button>
+  <div class="btn-row">
+    <button id="btnCalBack" class="btn-secondary">Back</button>
+    <button id="btnCalDone" class="btn-primary">Done calibrating</button>
+  </div>
 </div>
 
 <!-- ============ TASK INSTRUCTIONS / READY SCREEN ============ -->
@@ -131,7 +150,7 @@ Before each task, a small green box will briefly appear on screen. It shows wher
   </div>
 
   <button id="btnBeginTask" class="btn-primary">Begin Task</button>
-  <div class="small-note">or press SPACE to begin</div>
+  <div class="small-note" id="beginTaskNote">or press SPACE to begin</div>
 </div>
 
 <!-- ============ RESUME (only shown if saved progress is found) ============ -->
@@ -149,14 +168,15 @@ It looks like there's a saved session already in progress for this Banner ID.
 <!-- ============ GOODBYE / DOWNLOAD ============ -->
 <div id="screen-goodbye" class="screen hidden">
   <div class="instructions">
-Thank you for your participation.
+Your data has been saved as a CSV file and should have downloaded automatically to your computer (check your Downloads folder). No need to click the button below if it already did.
+  </div>
+  <button id="btnDownloadAgain" class="btn-secondary">Download my data again</button>
+  <div class="small-note">CSV didn't download? Check for a new tab that opened instead, and use "Save As" to save it -- or click the button above to try again.</div>
 
-Your data has been saved as a CSV file and should have downloaded automatically to your computer (check your Downloads folder). If it did not download, click the button below to download it again.
-
+  <div class="instructions" style="margin-top:28px;">
 Please return to the Qualtrics survey tab to upload that CSV file there.
   </div>
   <div class="callout-warning">&#9888;&#65039; Your research participation is not complete without uploading the CSV to Qualtrics.</div>
-  <button id="btnDownloadAgain">Download my data again</button>
 </div>
 
 <script>
@@ -188,15 +208,11 @@ const PI = Math.PI;
 
 /* =========================================================================
    STIMULUS SIZE / GEOMETRY CONSTANTS
-   The original task defines all sizes in "degrees of visual angle" (deg).
-   Here we treat those same numbers as centimetres instead, which is a very
-   close approximation at a ~57.3 cm viewing distance (the standard
-   "1 cm at 57 cm subtends ~1 degree" rule used throughout vision science),
-   and has the advantage of not requiring a viewing-distance estimate from
-   participants -- every stimulus is rendered at the same physical (cm) size
-   for everyone once the calibration step below is done. 
+   Original task used degrees of visual angle; treated here as centimetres
+   (~57.3cm viewing distance approximation) so calibration doesn't need a
+   viewing-distance estimate from participants.
    ========================================================================= */
-const ASSUMED_VIEWING_DISTANCE_CM = 57.3; 
+const ASSUMED_VIEWING_DISTANCE_CM = 57.3;
 
 const left_center = [-7, 0];
 const right_center = [7, 0];
@@ -372,7 +388,16 @@ function resizeCanvas() {
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 
-let px_per_cm = 40; // overwritten by calibration
+let px_per_cm = 40; // live value used for drawing; auto-corrected for zoom below
+let calibratedPxPerCm = null;
+let calibrationDevicePixelRatio = null;
+
+// devicePixelRatio tracks browser zoom / OS display scaling; recompute px_per_cm from it
+function applyZoomCorrection() {
+  if (calibratedPxPerCm == null || calibrationDevicePixelRatio == null) return; // == catches undefined too
+  px_per_cm = calibratedPxPerCm * (calibrationDevicePixelRatio / window.devicePixelRatio);
+}
+setInterval(applyZoomCorrection, 500);
 
 function toPx(posCm) {
   return {
@@ -432,6 +457,11 @@ const screens = {
 function showScreen(name) {
   Object.values(screens).forEach(el => el.classList.add('hidden'));
   screens[name].classList.remove('hidden');
+  // storage warning only shows on welcome, never after
+  if (name !== 'welcome') {
+    const warningEl = document.getElementById('noStorageWarning');
+    if (warningEl) warningEl.classList.add('hidden');
+  }
 }
 
 let participantId = '';
@@ -447,8 +477,7 @@ const sessionStartIso = new Date().toISOString();
   if (pidFromUrl) {
     const pInput = document.getElementById('participantInput');
     pInput.value = pidFromUrl;
-    // only lock the field if it's actually a valid 4-digit ID -- otherwise
-    // leave it editable so the participant/researcher can correct it
+    // only lock if a valid 4-digit ID, so a bad value stays editable
     if (/^[0-9]{4}$/.test(pidFromUrl)) {
       pInput.readOnly = true;
     }
@@ -468,14 +497,39 @@ calSlider.addEventListener('input', updateCalBox);
 updateCalBox();
 
 // ---- progress autosave / resume ----
-// Saved to localStorage 
 const PROGRESS_KEY_PREFIX = 'ebbinghaus_mullerlyer_progress_';
 function progressKey(id) { return PROGRESS_KEY_PREFIX + id; }
+
+// fires only in other tabs, never our own -- catches the same participant ID open twice
+window.addEventListener('storage', (e) => {
+  if (participantId && e.key === progressKey(participantId)) {
+    document.getElementById('multiTabWarning').classList.remove('hidden');
+  }
+});
+
+// some browsers/contexts block localStorage entirely (Safari private mode, file:// in
+// Firefox, some managed devices) -- detect it rather than failing silently
+function testLocalStorageAvailable() {
+  try {
+    const testKey = '__ls_test__';
+    window.localStorage.setItem(testKey, '1');
+    window.localStorage.removeItem(testKey);
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+const localStorageAvailable = testLocalStorageAvailable();
+if (!localStorageAvailable) {
+  const warningEl = document.getElementById('noStorageWarning');
+  if (warningEl) warningEl.classList.remove('hidden');
+}
 
 function saveProgress() {
   try {
     const state = {
-      participantId, px_per_cm, demoMode: !!window.__demoMode,
+      participantId, px_per_cm, calibratedPxPerCm, calibrationDevicePixelRatio,
+      demoMode: !!window.__demoMode,
       trial_spec, ill_type_order, adj_stim_lr,
       l_r_count, first_last_10_count, block_count, adj_lr_count, do_star,
       trialsCompleted, dataRows, savedAt: new Date().toISOString()
@@ -498,7 +552,17 @@ function clearProgress(id) {
 }
 function restoreProgress(saved) {
   participantId = saved.participantId;
+  // restore the original calibration baseline; fall back gracefully if this
+  // was saved by an older version missing these two fields
+  if (saved.calibratedPxPerCm != null && saved.calibrationDevicePixelRatio != null) {
+    calibratedPxPerCm = saved.calibratedPxPerCm;
+    calibrationDevicePixelRatio = saved.calibrationDevicePixelRatio;
+  } else {
+    calibratedPxPerCm = saved.px_per_cm;
+    calibrationDevicePixelRatio = window.devicePixelRatio;
+  }
   px_per_cm = saved.px_per_cm;
+  applyZoomCorrection();
   window.__demoMode = saved.demoMode;
   if (saved.demoMode) document.getElementById('demoNote').style.opacity = '1';
   trial_spec = saved.trial_spec;
@@ -551,13 +615,28 @@ document.getElementById('btnToCalibration').addEventListener('click', () => {
   }
 });
 
+document.getElementById('participantInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    document.getElementById('btnToCalibration').click();
+  }
+});
+
+document.getElementById('btnCalBack').addEventListener('click', () => {
+  document.getElementById('participantInput').readOnly = false;
+  showScreen('welcome');
+});
+
 document.getElementById('btnResumeContinue').addEventListener('click', () => {
   const saved = loadProgress(participantId);
   restoreProgress(saved);
-  showScreen('canvas');
-  document.addEventListener('keydown', onKeyDown);
-  nextIndicatorPhase();
-  requestAnimationFrame(renderLoop);
+  saveProgress(); // notifies other tabs immediately, not just after the next trial
+  document.getElementById('btnBeginTask').textContent = 'Resume Task';
+  document.getElementById('beginTaskNote').textContent = 'or press SPACE to resume';
+  readyScreenSubmitted = false;
+  document.getElementById('btnBeginTask').disabled = false;
+  showScreen('ready');
+  document.addEventListener('keydown', onReadyScreenKeyDown);
 });
 document.getElementById('btnResumeRestart').addEventListener('click', () => {
   clearProgress(participantId);
@@ -566,13 +645,24 @@ document.getElementById('btnResumeRestart').addEventListener('click', () => {
 
 document.getElementById('btnCalDone').addEventListener('click', () => {
   const measuredPx = Number(calSlider.value);
-  px_per_cm = measuredPx / STANDARD_CARD_WIDTH_CM;
+  calibratedPxPerCm = measuredPx / STANDARD_CARD_WIDTH_CM;
+  calibrationDevicePixelRatio = window.devicePixelRatio;
+  px_per_cm = calibratedPxPerCm;
   saveProgress(); // so a resume after this point skips re-calibration
+  document.getElementById('btnBeginTask').textContent = 'Begin Task';
+  document.getElementById('beginTaskNote').textContent = 'or press SPACE to begin';
+  readyScreenSubmitted = false;
+  document.getElementById('btnBeginTask').disabled = false;
   showScreen('ready');
   document.addEventListener('keydown', onReadyScreenKeyDown);
 });
 
+// prevents Space + click both starting the trial sequence at once
+let readyScreenSubmitted = false;
 function beginTaskFromReadyScreen() {
+  if (readyScreenSubmitted) return;
+  readyScreenSubmitted = true;
+  document.getElementById('btnBeginTask').disabled = true;
   document.removeEventListener('keydown', onReadyScreenKeyDown);
   startTrialSequence();
 }
@@ -586,10 +676,19 @@ document.getElementById('btnBeginTask').addEventListener('click', beginTaskFromR
 
 document.getElementById('btnDownloadAgain').addEventListener('click', downloadCsv);
 
+// warns on accidental tab close/refresh while a session is in progress
+let unloadWarningEnabled = false;
+window.addEventListener('beforeunload', (e) => {
+  if (!unloadWarningEnabled) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
+
 /* ---- trial sequencing ---- */
 let phase = null; // 'indicator' | 'trial'
+let renderLoopActive = false; // stops the requestAnimationFrame chain once the task is done
 let adjust_pos_side, adjust_pos, reference_pos, l_r_val, noc_con;
-let adjust_size, ref_size, adjustment_counter, has_changed;
+let adjust_size, ref_size, adjustment_counter;
 let adjust_con_pos, static_con_pos, adjust_con_oris, static_con_oris, adjust_diff_len;
 let small_circ_pos, large_circ_pos;
 let trialsCompleted = 0;
@@ -597,6 +696,8 @@ let phaseStartTime = 0;
 let trialStartTime = 0;
 
 function startTrialSequence() {
+  unloadWarningEnabled = true;
+  renderLoopActive = true;
   showScreen('canvas');
   document.addEventListener('keydown', onKeyDown);
   nextIndicatorPhase();
@@ -613,6 +714,11 @@ function pickAdjustPosSide() {
 }
 
 function nextIndicatorPhase() {
+  // safety net: stop cleanly rather than reading past the end of trial_spec
+  if (block_count >= trial_spec.length) {
+    endExperiment();
+    return;
+  }
   pickAdjustPosSide();
   phase = 'indicator';
   phaseStartTime = performance.now();
@@ -623,7 +729,6 @@ function setUpTrial() {
   noc_con = trial_spec[block_count][1][first_last_10_count][0];
   reference_pos = (adjust_pos_side === 'r') ? left_center : right_center;
 
-  has_changed = false;
   adjustment_counter = 0;
   trialStartTime = performance.now();
 
@@ -663,7 +768,6 @@ function setUpTrial() {
         if (pos[0] > adjust_pos[0]) pos[0] += adjust_diff_len / 2;
         else pos[0] -= adjust_diff_len / 2;
       }
-      has_changed = false;
     }
   }
   phase = 'trial';
@@ -681,7 +785,6 @@ function onKeyDown(e) {
     if (adjust_size < maxVal) {
       const adjust_change = 0.05 * adjust_size;
       adjust_size += adjust_change;
-      has_changed = true;
       adjustment_counter += 1;
       if (illType === 'muller' && noc_con === 'con') shiftMullerContext(adjust_change);
     }
@@ -690,7 +793,6 @@ function onKeyDown(e) {
     if (adjust_size > minVal) {
       const adjust_change = -0.05 * adjust_size;
       adjust_size += adjust_change;
-      has_changed = true;
       adjustment_counter += 1;
       if (illType === 'muller' && noc_con === 'con') shiftMullerContext(adjust_change);
     }
@@ -701,7 +803,6 @@ function onKeyDown(e) {
 }
 
 function shiftMullerContext(adjust_change) {
-  if (!has_changed) return;
   for (const pos of adjust_con_pos) {
     if (pos[0] > adjust_pos[0]) pos[0] += adjust_change / 2;
     else pos[0] -= adjust_change / 2;
@@ -747,7 +848,8 @@ function finishTrial() {
 
   saveProgress();
 
-  const effectiveTotal = window.__demoMode ? DEMO_TRIAL_COUNT : N_TOTAL_TRIALS;
+  // capped so DEMO_TRIAL_COUNT can never exceed the real trial plan
+  const effectiveTotal = Math.min(window.__demoMode ? DEMO_TRIAL_COUNT : N_TOTAL_TRIALS, N_TOTAL_TRIALS);
   if (trialsCompleted >= effectiveTotal) {
     endExperiment();
   } else {
@@ -757,6 +859,8 @@ function finishTrial() {
 
 function endExperiment() {
   document.removeEventListener('keydown', onKeyDown);
+  unloadWarningEnabled = false;
+  renderLoopActive = false;
   clearProgress(participantId);
   showScreen('goodbye');
   downloadCsv();
@@ -770,7 +874,8 @@ function downloadCsv() {
     lines.push(headers.map(h => String(row[h]).replace(/,/g, ';')).join(','));
   });
   const csv = lines.join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
+  // octet-stream avoids Safari sometimes opening CSVs inline instead of downloading
+  const blob = new Blob([csv], { type: 'application/octet-stream' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -785,6 +890,8 @@ function downloadCsv() {
    RENDER LOOP
    ========================================================================= */
 function renderLoop() {
+  if (!renderLoopActive) return; // task is done -- let this requestAnimationFrame chain end here
+
   clearCanvas();
 
   if (window.__demoMode) {
@@ -840,7 +947,10 @@ window.__debug = {
   get adj_stim_lr() { return adj_stim_lr; },
   get phase() { return phase; },
   get px_per_cm() { return px_per_cm; },
-  setUpTrial, onKeyDown, finishTrial, startTrialSequence
+  get calibratedPxPerCm() { return calibratedPxPerCm; },
+  get calibrationDevicePixelRatio() { return calibrationDevicePixelRatio; },
+  get renderLoopActive() { return renderLoopActive; },
+  setUpTrial, onKeyDown, finishTrial, startTrialSequence, applyZoomCorrection, renderLoop
 };
 </script>
 </body>

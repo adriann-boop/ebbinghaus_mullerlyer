@@ -2,7 +2,8 @@
 
 A standalone, single-file HTML/JavaScript implementation of an Ebbinghaus and
 Müller-Lyer illusion size-matching task, built for unsupervised online
-administration (e.g. linked from a Qualtrics survey). 
+administration (e.g. linked from a Qualtrics survey). No server, account, or
+installation required — participants just open the page in a browser.
 
 ## What it does
 
@@ -21,9 +22,19 @@ counterbalanced order. The page includes:
 
 ## Usage
 
-Open `ebbinghaus_mullerlyer.html` directly, or host it (e.g. via GitHub
-Pages) and link to it from a survey platform. A participant ID can be passed
-in via a `?pid=` URL parameter.
+Intended to be hosted (e.g. via GitHub Pages) and linked from a survey
+platform; a participant ID can be passed in via a `?pid=` URL parameter.
+Opening the file directly also works for local testing, though some browsers
+restrict local storage for `file://` pages.
+
+A password-gated preview mode exists for researcher testing (a short version
+of the task); see inline code comments for details.
+
+## Limitations
+
+Stimuli are sized to a consistent *physical* size across screens (via the
+on-screen calibration step), not true per-participant visual angle, which
+would require estimating each participant's viewing distance.
 
 ## Attribution
 
