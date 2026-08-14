@@ -30,6 +30,7 @@
   }
   .hidden { display: none !important; }
   .instructions { max-width: 700px; font-size: 18px; line-height: 1.5; white-space: pre-line; }
+  .page-title { font-size: 32px; font-weight: bold; letter-spacing: 0.5px; margin-bottom: 20px; }
   .controls-grid {
     display: flex; gap: 36px; justify-content: center; align-items: flex-start;
     margin: 28px 0; flex-wrap: wrap;
@@ -93,10 +94,11 @@
 
 <!-- ============ WELCOME / PARTICIPANT ID ============ -->
 <div id="screen-welcome" class="screen">
+  <div class="page-title">Welcome to the computerized task.</div>
   <div class="instructions">
-Welcome to the computerized task.
+This task must be completed on a laptop or desktop computer with a keyboard -- it will not work on a phone or tablet.
 
-Before the task begins, we first need to quickly calibrate your screen so that objects appear at a consistent physical size.
+This task takes approximately 10-15 minutes to complete.
   </div>
   <div>
     <label for="participantInput">Last four digits of Banner ID: </label>
@@ -110,6 +112,8 @@ Before the task begins, we first need to quickly calibrate your screen so that o
 <!-- ============ CALIBRATION ============ -->
 <div id="screen-calibration" class="screen hidden">
   <div class="instructions">
+Before the task begins, we first need to quickly calibrate your screen so that objects appear at a consistent physical size.
+
 Please find a Rowan ID card/standard credit card/similarly sized card and hold it flat against your screen, next to the white rectangle below.
 
 Use ONLY the slider to resize the white rectangle until its width exactly matches the width of your card. Do not use a ruler or estimate by eye -- the slider is the only control that matters here.
@@ -162,13 +166,21 @@ It looks like there's a saved session already in progress for this Banner ID.
   <button id="btnResumeRestart">Start over</button>
 </div>
 
+<!-- ============ EXPIRED (saved session too old to resume) ============ -->
+<div id="screen-expired" class="screen hidden">
+  <div class="instructions">
+It's been a while since you were last active on this task, so we're starting fresh.
+  </div>
+  <button id="btnExpiredContinue" class="btn-primary">Continue</button>
+</div>
+
 <!-- ============ MAIN TASK CANVAS ============ -->
 <canvas id="canvas" class="hidden"></canvas>
 
 <!-- ============ GOODBYE / DOWNLOAD ============ -->
 <div id="screen-goodbye" class="screen hidden">
   <div class="instructions">
-Your data has been saved as a CSV file and should have downloaded automatically to your computer (check your Downloads folder). No need to click the button below if it already did.
+Your data has been saved as a CSV file and should have downloaded automatically to your computer (check your Downloads folder). No need to click the button below if it already downloaded.
   </div>
   <button id="btnDownloadAgain" class="btn-secondary">Download my data again</button>
   <div class="small-note">CSV didn't download? Check for a new tab that opened instead, and use "Save As" to save it -- or click the button above to try again.</div>
@@ -452,7 +464,8 @@ const screens = {
   ready: document.getElementById('screen-ready'),
   canvas: canvas,
   goodbye: document.getElementById('screen-goodbye'),
-  resume: document.getElementById('screen-resume')
+  resume: document.getElementById('screen-resume'),
+  expired: document.getElementById('screen-expired')
 };
 function showScreen(name) {
   Object.values(screens).forEach(el => el.classList.add('hidden'));
@@ -580,7 +593,9 @@ function restoreProgress(saved) {
 // ---- welcome / ID entry, demo trigger, and resume check ----
 const DEMO_ID_TRIGGER = 'psypreview';
 const DEMO_PASSWORD = '10203040';
-const DEMO_TRIAL_COUNT = 10; 
+const DEMO_TRIAL_COUNT = 10;
+const RESUME_EXPIRY_MS = 30 * 60 * 1000; // saved sessions older than this force a restart
+const MIN_TRIAL_DURATION_MS = 400; // blocks spamming Space to blitz through trials
 
 document.getElementById('btnToCalibration').addEventListener('click', () => {
   const enteredId = document.getElementById('participantInput').value.trim();
@@ -608,8 +623,14 @@ document.getElementById('btnToCalibration').addEventListener('click', () => {
 
   participantId = enteredId;
   const saved = loadProgress(participantId);
-  if (saved && saved.ill_type_order && saved.trialsCompleted < saved.ill_type_order.length * 21) {
-    showScreen('resume');
+  const incomplete = saved && saved.ill_type_order && saved.trialsCompleted < saved.ill_type_order.length * 21;
+  if (incomplete) {
+    const elapsedMs = Date.now() - new Date(saved.savedAt).getTime();
+    if (elapsedMs > RESUME_EXPIRY_MS) {
+      showScreen('expired');
+    } else {
+      showScreen('resume');
+    }
   } else {
     showScreen('calibration');
   }
@@ -639,6 +660,10 @@ document.getElementById('btnResumeContinue').addEventListener('click', () => {
   document.addEventListener('keydown', onReadyScreenKeyDown);
 });
 document.getElementById('btnResumeRestart').addEventListener('click', () => {
+  clearProgress(participantId);
+  showScreen('calibration');
+});
+document.getElementById('btnExpiredContinue').addEventListener('click', () => {
   clearProgress(participantId);
   showScreen('calibration');
 });
@@ -798,6 +823,8 @@ function onKeyDown(e) {
     }
   } else if (e.code === 'Space') {
     e.preventDefault();
+    if (e.repeat) return; // ignore auto-repeat from holding the key down
+    if (performance.now() - trialStartTime < MIN_TRIAL_DURATION_MS) return; // too fast to be a real response
     finishTrial();
   }
 }
@@ -857,6 +884,24 @@ function finishTrial() {
   }
 }
 
+// paste your deployed Google Apps Script Web App URL here to enable automatic
+// submission; leave blank to skip it (local CSV download + Qualtrics upload
+// still work fine either way -- this is an extra, optional safety net)
+const SHEET_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbzNlpidckziR-Ak163cHReKBHurdHSDvMs6bZM-qEZfiA91Atb8qlP-oIIJJZWkilZN/exec';
+
+function postDataToSheet() {
+  if (!SHEET_WEBHOOK_URL) return;
+  try {
+    fetch(SHEET_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // avoids a CORS preflight
+      body: JSON.stringify({ participant: participantId, rows: dataRows })
+    }).catch(err => console.warn('Auto-submit to sheet failed:', err));
+  } catch (err) {
+    console.warn('Auto-submit to sheet failed:', err);
+  }
+}
+
 function endExperiment() {
   document.removeEventListener('keydown', onKeyDown);
   unloadWarningEnabled = false;
@@ -864,6 +909,7 @@ function endExperiment() {
   clearProgress(participantId);
   showScreen('goodbye');
   downloadCsv();
+  postDataToSheet();
 }
 
 function downloadCsv() {
