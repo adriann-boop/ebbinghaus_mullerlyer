@@ -708,6 +708,16 @@ window.addEventListener('beforeunload', (e) => {
   e.preventDefault();
   e.returnValue = '';
 });
+// separately, if they actually do leave mid-task, send whatever trials were
+// completed so far -- sendBeacon (not fetch) because it's designed to survive
+// the page unloading, unlike a normal in-flight request
+window.addEventListener('pagehide', () => {
+  if (unloadWarningEnabled && SHEET_WEBHOOK_URL && dataRows.length > 0) {
+    navigator.sendBeacon(SHEET_WEBHOOK_URL, JSON.stringify({
+      participant: participantId, rows: dataRows, complete: false
+    }));
+  }
+});
 
 /* ---- trial sequencing ---- */
 let phase = null; // 'indicator' | 'trial'
@@ -839,7 +849,7 @@ function shiftMullerContext(adjust_change) {
 function finishTrial() {
   const trialDurationS = (performance.now() - trialStartTime) / 1000;
   const row = {
-    thisN: trialsCompleted,
+    trial_number: trialsCompleted + 1,
     'trial.duration': trialDurationS.toFixed(4),
     'trial.adjustable_side': adjust_pos_side,
     'trial.adjustments_counts': adjustment_counter,
@@ -887,7 +897,7 @@ function finishTrial() {
 // paste your deployed Google Apps Script Web App URL here to enable automatic
 // submission; leave blank to skip it (local CSV download + Qualtrics upload
 // still work fine either way -- this is an extra, optional safety net)
-const SHEET_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbzNlpidckziR-Ak163cHReKBHurdHSDvMs6bZM-qEZfiA91Atb8qlP-oIIJJZWkilZN/exec';
+const SHEET_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbyhdC9Ha6VxsFVN8LP61xR2yovG_48Kq-yE6FVrF9YNrKv-c2XHvg8BFpJlfxumJV6Z/exec';
 
 function postDataToSheet() {
   if (!SHEET_WEBHOOK_URL) return;
@@ -895,7 +905,7 @@ function postDataToSheet() {
     fetch(SHEET_WEBHOOK_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // avoids a CORS preflight
-      body: JSON.stringify({ participant: participantId, rows: dataRows })
+      body: JSON.stringify({ participant: participantId, rows: dataRows, complete: true })
     }).catch(err => console.warn('Auto-submit to sheet failed:', err));
   } catch (err) {
     console.warn('Auto-submit to sheet failed:', err);
