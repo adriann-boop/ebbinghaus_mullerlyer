@@ -36,6 +36,15 @@ Stimuli are sized to a consistent *physical* size across screens (via the
 on-screen calibration step), not true per-participant visual angle, which
 would require estimating each participant's viewing distance.
 
+## Version History
+
+- **html1** — original release: calibration, autosave/resume, CSV export,
+  Qualtrics integration, automatic submission to a Google Sheet.
+- **html2** — adds low-effort detection (warns participants after a pattern
+  of minimal adjustment across trials, restarts the task if it continues),
+  a progress bar, and an effort acknowledgment checkbox on the welcome
+  screen.
+
 ## Attribution
 
 This task is adapted for online/browser administration from an original
