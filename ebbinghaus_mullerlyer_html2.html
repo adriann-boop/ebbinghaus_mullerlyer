@@ -129,6 +129,7 @@ Please sit at a comfortable distance from your screen, similar to how you'd norm
   </div>
   <div class="cal-box" id="calBox" style="width:200px; height:126px;"></div>
   <input type="range" id="calSlider" min="50" max="800" value="200">
+  <div class="small-note" id="calWarning" style="color:#ff6b6b; display:none; max-width:640px; text-align:center;"></div>
   <div class="btn-row">
     <button id="btnCalBack" class="btn-secondary">Back</button>
     <button id="btnCalDone" class="btn-primary">Done calibrating</button>
@@ -536,8 +537,28 @@ function updateCalBox() {
   calBox.style.width = wPx + 'px';
   calBox.style.height = (wPx * (5.398 / 8.56)) + 'px'; // keep standard card aspect ratio
 }
-calSlider.addEventListener('input', updateCalBox);
+calSlider.addEventListener('input', () => {
+  updateCalBox();
+  calWarningShown = false; // moving the slider resets the warning
+  document.getElementById('calWarning').style.display = 'none';
+});
 updateCalBox();
+
+// the slider's starting and maximum positions almost certainly mean the participant
+// didn't match their card, so warn once before accepting either value
+const CAL_DEFAULT_PX = Number(calSlider.defaultValue);
+const CAL_MAX_PX = Number(calSlider.max);
+let calWarningShown = false;
+function calibrationNeedsWarning() {
+  const v = Number(calSlider.value);
+  if (v === CAL_DEFAULT_PX) {
+    return 'The slider is still at its starting position. Please hold your card against the screen and drag the slider until the white rectangle is exactly as wide as your card. If it truly already matches, press "Done calibrating" again to continue.';
+  }
+  if (v >= CAL_MAX_PX) {
+    return 'The slider is all the way at its maximum. Your card is unlikely to be that wide on screen -- please hold your card against the screen and drag the slider until the white rectangle is exactly as wide as your card. If it truly matches, press "Done calibrating" again to continue.';
+  }
+  return null;
+}
 
 // ---- progress autosave / resume ----
 const PROGRESS_KEY_PREFIX = 'ebbinghaus_mullerlyer_progress_';
@@ -706,6 +727,14 @@ document.getElementById('btnExpiredContinue').addEventListener('click', () => {
 });
 
 document.getElementById('btnCalDone').addEventListener('click', () => {
+  const calMsg = calibrationNeedsWarning();
+  if (calMsg && !calWarningShown) {
+    const el = document.getElementById('calWarning');
+    el.textContent = calMsg;
+    el.style.display = 'block';
+    calWarningShown = true;
+    return; // second click (without moving the slider) confirms
+  }
   const measuredPx = Number(calSlider.value);
   calibratedPxPerCm = measuredPx / STANDARD_CARD_WIDTH_CM;
   calibrationDevicePixelRatio = window.devicePixelRatio;

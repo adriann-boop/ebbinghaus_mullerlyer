@@ -43,7 +43,8 @@ would require estimating each participant's viewing distance.
 - **html2** — adds low-effort detection (warns participants after a pattern
   of minimal adjustment across trials, restarts the task if it continues),
   a progress bar, and an effort acknowledgment checkbox on the welcome
-  screen.
+  screen. Also warns participants (once) if they leave the calibration
+  slider at its starting position or at its maximum.
 
 ## Attribution
 
