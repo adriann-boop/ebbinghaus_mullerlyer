@@ -15,6 +15,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><!-- so the phone/tablet block screen is readable -->
 <title>Size-Matching Task</title>
 <style>
   html, body {
@@ -114,6 +115,23 @@ This task takes approximately 10-15 minutes to complete.
   <div class="small-note" id="effortAckError" style="color:#ff6b6b; display:none;">Please confirm the statement above before continuing.</div>
   <button id="btnToCalibration">Continue</button>
   <div class="small-note" id="demoNote" style="opacity:0;">Demo mode is active.</div>
+</div>
+
+<!-- ============ PHONE / TABLET BLOCK (hard stop; shown instead of everything else) ============ -->
+<div id="screen-blocked" class="screen hidden" style="overflow-y:auto; justify-content:flex-start; padding-top:40px;">
+  <div class="page-title" style="font-size:26px;">Please use a laptop or desktop computer</div>
+  <div class="instructions" style="font-size:17px; max-width:520px;">
+This task needs a computer keyboard (arrow keys and the space bar), so it can't be completed on a phone or tablet.
+
+Please open the link below on a laptop or desktop computer to start the task from the beginning.
+  </div>
+  <input type="text" id="blockedLinkBox" readonly style="width:90%; max-width:520px; margin-top:20px; text-align:center;">
+  <div class="btn-row" style="flex-wrap:wrap;">
+    <button id="btnCopyLink" class="btn-primary" style="margin-top:16px; padding:12px 26px;">Copy link</button>
+    <a id="btnEmailLink" href="#" style="margin-top:16px; padding:12px 26px; border:1px solid #666; border-radius:30px; color:#ccc; text-decoration:none; font-size:16px;">Email link to myself</a>
+  </div>
+  <div class="small-note" id="blockedCopyNote" style="min-height:18px;"></div>
+  <div class="small-note" style="max-width:520px;">On the computer, paste the link into the address bar of Chrome, Edge, Safari or Firefox.</div>
 </div>
 
 <!-- ============ CALIBRATION ============ -->
@@ -496,7 +514,8 @@ const screens = {
   canvas: canvas,
   goodbye: document.getElementById('screen-goodbye'),
   resume: document.getElementById('screen-resume'),
-  expired: document.getElementById('screen-expired')
+  expired: document.getElementById('screen-expired'),
+  blocked: document.getElementById('screen-blocked')
 };
 function showScreen(name) {
   Object.values(screens).forEach(el => el.classList.add('hidden'));
@@ -511,6 +530,71 @@ function showScreen(name) {
 let participantId = '';
 let dataRows = [];
 const sessionStartIso = new Date().toISOString();
+
+/* =========================================================================
+   DEVICE DETECTION -- phones and tablets are hard-blocked
+   ========================================================================= */
+// returns { blocked, label }. label is only used to tag saved progress, so progress
+// from a different kind of device is never resumed (phones/tablets never get past the block screen)
+function detectDevice() {
+  const ua = navigator.userAgent || '';
+  const mm = (q) => { try { return window.matchMedia(q).matches; } catch (e) { return false; } };
+  const isIPhone = /iPhone|iPod/i.test(ua);
+  // iPadOS 13+ reports a Mac user agent, so catch it by "Mac with a touchscreen"
+  const isIPad = /iPad/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isAndroid = /Android/i.test(ua);
+  const isOtherMobile = /Mobile|Windows Phone|BlackBerry|Opera Mini|Silk|Kindle/i.test(ua);
+  // catches "request desktop site" spoofing and touch-only Windows tablets:
+  // a touch screen with no mouse/trackpad at all
+  const touchOnly = mm('(any-pointer: coarse)') && !mm('(any-pointer: fine)');
+
+  if (isIPhone) return { blocked: true, label: 'phone' };
+  if (isIPad) return { blocked: true, label: 'tablet' };
+  if (isAndroid) return { blocked: true, label: /Mobile/i.test(ua) ? 'phone' : 'tablet' };
+  if (isOtherMobile) return { blocked: true, label: 'phone' };
+  // Windows/ChromeOS are exempt from the touch-only rule so a touchscreen laptop that
+  // reports its trackpad oddly is never wrongly blocked
+  if (touchOnly && !/Windows NT|CrOS/i.test(ua)) return { blocked: true, label: 'tablet' };
+
+  let os = 'other';
+  if (/CrOS/i.test(ua)) os = 'chromeos';
+  else if (/Windows/i.test(ua)) os = 'windows';
+  else if (/Macintosh|Mac OS X/i.test(ua)) os = 'mac';
+  else if (/Linux|X11/i.test(ua)) os = 'linux';
+  return { blocked: false, label: 'computer_' + os };
+}
+const deviceInfo = detectDevice();
+const deviceLabel = deviceInfo.label;
+
+(function setUpBlockedScreen() {
+  if (!deviceInfo.blocked) return;
+  // link to hand to the computer: this page, keeping only a valid 4-digit pid
+  const pid = new URLSearchParams(window.location.search).get('pid');
+  const url = window.location.origin + window.location.pathname +
+    (pid && /^[0-9]{4}$/.test(pid) ? '?pid=' + pid : '');
+  const box = document.getElementById('blockedLinkBox');
+  const note = document.getElementById('blockedCopyNote');
+  box.value = url;
+  document.getElementById('btnEmailLink').href = 'mailto:?subject=' +
+    encodeURIComponent('Link to the computerized task') +
+    '&body=' + encodeURIComponent('Open this link on a laptop or desktop computer:\n\n' + url);
+  document.getElementById('btnCopyLink').addEventListener('click', () => {
+    const fallback = () => {
+      try {
+        box.focus(); box.select(); box.setSelectionRange(0, 99999);
+        note.textContent = document.execCommand('copy') ? 'Link copied.' : 'Press and hold the link above to copy it.';
+      } catch (e) {
+        note.textContent = 'Press and hold the link above to copy it.';
+      }
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(() => { note.textContent = 'Link copied.'; }, fallback);
+    } else {
+      fallback();
+    }
+  });
+  showScreen('blocked'); // nothing else on the page can be reached from here
+})();
 
 /* =========================================================================
    OPTIONAL: participant ID passed in via Qualtrics link   
@@ -596,7 +680,7 @@ function saveProgress() {
       demoMode: !!window.__demoMode,
       trial_spec, ill_type_order, adj_stim_lr,
       l_r_count, first_last_10_count, block_count, adj_lr_count, do_star,
-      trialsCompleted, dataRows, lowEffortStreak, strikeCount,
+      trialsCompleted, dataRows, lowEffortStreak, strikeCount, device: deviceLabel,
       savedAt: new Date().toISOString()
     };
     window.localStorage.setItem(progressKey(participantId), JSON.stringify(state));
@@ -653,6 +737,7 @@ const RESUME_EXPIRY_MS = 30 * 60 * 1000; // saved sessions older than this force
 const MIN_TRIAL_DURATION_MS = 400; // blocks spamming Space to blitz through trials
 
 document.getElementById('btnToCalibration').addEventListener('click', () => {
+  if (deviceInfo.blocked) return; // phones/tablets never get past the block screen
   const enteredId = document.getElementById('participantInput').value.trim();
   const errorEl = document.getElementById('participantIdError');
   const ackCheckbox = document.getElementById('effortAckCheckbox');
@@ -685,7 +770,12 @@ document.getElementById('btnToCalibration').addEventListener('click', () => {
   errorEl.style.display = 'none';
 
   participantId = enteredId;
-  const saved = loadProgress(participantId);
+  let saved = loadProgress(participantId);
+  // progress saved on a different kind of device never carries over: start from the beginning
+  if (saved && saved.device && saved.device !== deviceLabel) {
+    clearProgress(participantId);
+    saved = null;
+  }
   const incomplete = saved && saved.ill_type_order && saved.trialsCompleted < saved.ill_type_order.length * 21;
   if (incomplete) {
     const elapsedMs = Date.now() - new Date(saved.savedAt).getTime();
